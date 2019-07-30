@@ -29,6 +29,7 @@ import time
 KEY_SUCCESS = "successful login"
 KEY_IP = "ip"
 KEY_USER = "user"
+KEY_VALID_USER = "valid user"
 
 class AuthMonitor(object):
     """Class for monitoring the auth log."""
@@ -41,42 +42,65 @@ class AuthMonitor(object):
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
         self.failed_re = re.compile(self.failed_re_str)
 
-    def train_model(self, featurs):
-        pass
+    def train_model(self, features):
+        print(features)
     
-    def compare_against_model(self, featurs):
-        pass
+    def compare_against_model(self, features):
+        print(features)
 
-    def extract_features(self, line):
+    def extract_features(self, line, valid_users):
         """Given a line from the auth log, extracts the features we will use in the model."""
         features = {}
 
         success_match = self.success_re.match(line)
         if success_match:
             features[KEY_SUCCESS] = "true"
-            features[KEY_IP] = success_match.group(1)
-            features[KEY_USER] = success_match.group(2)
+            features[KEY_IP] = success_match.group(3)
+            user = success_match.group(2)
+            features[KEY_USER] = user
+            features[KEY_VALID_USER] = user in valid_users
             return features
 
         failed_match = self.failed_re.match(line)
         if failed_match:
             features[KEY_SUCCESS] = "false"
-            features[KEY_IP] = failed_match.group(1)
-            features[KEY_USER] = failed_match.group(2)
+            features[KEY_IP] = failed_match.group(3)
+            user = failed_match.group(2)
+            features[KEY_USER] = user
+            features[KEY_VALID_USER] = user in valid_users
             return features
 
         return features
 
+    def list_users(self):
+        # Return the list of user accounts from passwd.
+        users = []
+
+        with open('/etc/passwd', mode='r') as pw_file:
+            users_re = re.compile(r'[a-z0-9_-]{0,31}')
+            contents_str = pw_file.read()
+            contents = contents_str.split('\n')
+            for line in contents:
+                users_match = users_re.match(line)
+                if users_match:
+                    users.append(users_match.group(0))
+
+        return users
+
     def start(self):
+        # Get the list of valid users.
+        users = self.list_users()
+
+        # Monitor the auth log.
         f = subprocess.Popen(['less','+F','/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while True:
             line = f.stdout.readline()
             if line is not None and len(line) > 1:
-                features = self.extract_features(line)
-                if len(featurs) > 0:
+                features = self.extract_features(line, users)
+                if len(features) > 0:
                     if self.training:
                         self.train_model(features)
-                    else
+                    else:
                         self.compare_against_model(features)
             else:
                 time.sleep(1000)
