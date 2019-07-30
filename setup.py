@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-requirements = []
+requirements = ['numpy', 'slacker']
 
 setup(
     name='anomalylog',

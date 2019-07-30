@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import numpy as np
 import re
 import subprocess
 import time
@@ -52,6 +53,7 @@ class AuthMonitor(object):
         """Given a line from the auth log, extracts the features we will use in the model."""
         features = {}
 
+        # Was it a successful login?
         success_match = self.success_re.match(line)
         if success_match:
             features[KEY_SUCCESS] = "true"
@@ -61,6 +63,7 @@ class AuthMonitor(object):
             features[KEY_VALID_USER] = user in valid_users
             return features
 
+        # Was it a failed login attempt?
         failed_match = self.failed_re.match(line)
         if failed_match:
             features[KEY_SUCCESS] = "false"
@@ -89,18 +92,23 @@ class AuthMonitor(object):
 
     def start(self):
         # Get the list of valid users.
-        users = self.list_users()
+        valid_users = self.list_users()
 
         # Monitor the auth log.
-        f = subprocess.Popen(['less','+F','/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        f = subprocess.Popen(['less', '+F', '/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while True:
+
+            # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
+            # compare it against the model or use it to train the model.
             line = f.stdout.readline()
             if line is not None and len(line) > 1:
-                features = self.extract_features(line, users)
+                features = self.extract_features(line, valid_users)
                 if len(features) > 0:
                     if self.training:
                         self.train_model(features)
                     else:
                         self.compare_against_model(features)
+
+            # To keep us from busy looping, take a short nap.
             else:
-                time.sleep(1000)
+                time.sleep(1)
