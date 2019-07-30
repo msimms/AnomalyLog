@@ -39,7 +39,7 @@ def main():
         parser.error(e)
         sys.exit(1)
 
-    mon = AuthMonitor.AuthMonitor(args.train)
+    mon = AuthMonitor.AuthMonitor(args.config, args.train)
     mon.start()
 
 if __name__ == '__main__':

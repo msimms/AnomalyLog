@@ -22,26 +22,30 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import numpy as np
 import re
 import subprocess
 import time
+import numpy as np
+from sklearn.cluster import KMeans
 
 KEY_SUCCESS = "successful login"
 KEY_IP = "ip"
 KEY_USER = "user"
 KEY_VALID_USER = "valid user"
+KEY_TRUSTED_MACHINE = "trusted machine"
 
 class AuthMonitor(object):
     """Class for monitoring the auth log."""
 
-    def __init__(self, training):
+    def __init__(self, config_file, training):
         super(AuthMonitor, self).__init__()
+        self.config_file = config_file
         self.training = training
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
         self.success_re = re.compile(self.success_re_str)
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
         self.failed_re = re.compile(self.failed_re_str)
+        self.kmeans = KMeans(n_clusters=2)
 
     def train_model(self, features):
         print(features)
@@ -95,7 +99,7 @@ class AuthMonitor(object):
         valid_users = self.list_users()
 
         # Monitor the auth log.
-        f = subprocess.Popen(['less', '+F', '/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        f = subprocess.Popen(['tail', '+f', '/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while True:
 
             # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
