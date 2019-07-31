@@ -25,8 +25,8 @@
 import re
 import subprocess
 import time
-import numpy as np
-from sklearn.cluster import KMeans
+
+INVALID_USER_SUB_STR = "invalid user "
 
 KEY_SUCCESS = "successful login"
 KEY_ADDRESS = "addr"
@@ -48,7 +48,6 @@ class AuthMonitor(object):
         self.success_re = re.compile(self.success_re_str)
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
         self.failed_re = re.compile(self.failed_re_str)
-        self.kmeans = KMeans(n_clusters=2)
         self.user_counts = {}
         self.address_counts = {}
 
@@ -115,6 +114,9 @@ class AuthMonitor(object):
             features[KEY_SUCCESS] = False
             features[KEY_ADDRESS] = failed_match.group(3)
             user = failed_match.group(2)
+            if user.find(INVALID_USER_SUB_STR) == 0:
+                user = user[len(INVALID_USER_SUB_STR):]
+
             features[KEY_USER] = user
             return features
 
