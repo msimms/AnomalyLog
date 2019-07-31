@@ -29,10 +29,13 @@ import numpy as np
 from sklearn.cluster import KMeans
 
 KEY_SUCCESS = "successful login"
-KEY_IP = "ip"
+KEY_ADDRESS = "addr"
 KEY_USER = "user"
 KEY_VALID_USER = "valid user"
-KEY_TRUSTED_MACHINE = "trusted machine"
+KEY_USER_SUCCESS_COUNT = "user success count"
+KEY_USER_FAIL_COUNT = "user fail count"
+KEY_ADDR_SUCCESS_COUNT = "addr success count"
+KEY_ADDR_FAIL_COUNT = "addr fail count"
 
 class AuthMonitor(object):
     """Class for monitoring the auth log."""
@@ -46,6 +49,8 @@ class AuthMonitor(object):
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
         self.failed_re = re.compile(self.failed_re_str)
         self.kmeans = KMeans(n_clusters=2)
+        self.user_counts = {}
+        self.address_counts = {}
 
     def train_model(self, features):
         print(features)
@@ -53,28 +58,64 @@ class AuthMonitor(object):
     def compare_against_model(self, features):
         print(features)
 
-    def extract_features(self, line, valid_users):
+    def normalize_features(self, features):
+        return features
+
+    def calculate_features(self, features, valid_users):
+        """Calculate additional features based on the ones extracted from the log file."""
+
+        success = features[KEY_SUCCESS]
+        user = features[KEY_USER]
+        address = features[KEY_ADDRESS]
+
+        # Is the provided user name a valid user?
+        features[KEY_VALID_USER] = user in valid_users
+
+        # Create record entries for the user and address, if necessary.
+        if user not in self.user_counts:
+            self.user_counts[user] = [0, 0]
+        if address not in self.address_counts:
+            self.address_counts[address] = [0, 0]
+
+        # How many successful/failed login attempts for this user?
+        # How many successful/failed login attempts for this source address?
+        user_counts_value = self.user_counts[user]
+        addr_counts_value = self.address_counts[address]
+        if success:
+            user_counts_value[0] = user_counts_value[0] + 1
+            addr_counts_value[0] = addr_counts_value[0] + 1
+        else:
+            user_counts_value[1] = user_counts_value[1] + 1
+            addr_counts_value[1] = addr_counts_value[1] + 1
+        self.user_counts[user] = user_counts_value
+        self.address_counts[user] = addr_counts_value
+        features[KEY_USER_SUCCESS_COUNT] = user_counts_value[0]
+        features[KEY_USER_FAIL_COUNT] = user_counts_value[1]
+        features[KEY_ADDR_SUCCESS_COUNT] = addr_counts_value[0]
+        features[KEY_ADDR_FAIL_COUNT] = addr_counts_value[1]
+
+        return features
+
+    def extract_features(self, line):
         """Given a line from the auth log, extracts the features we will use in the model."""
         features = {}
 
         # Was it a successful login?
         success_match = self.success_re.match(line)
         if success_match:
-            features[KEY_SUCCESS] = "true"
-            features[KEY_IP] = success_match.group(3)
+            features[KEY_SUCCESS] = True
+            features[KEY_ADDRESS] = success_match.group(3)
             user = success_match.group(2)
             features[KEY_USER] = user
-            features[KEY_VALID_USER] = user in valid_users
             return features
 
         # Was it a failed login attempt?
         failed_match = self.failed_re.match(line)
         if failed_match:
-            features[KEY_SUCCESS] = "false"
-            features[KEY_IP] = failed_match.group(3)
+            features[KEY_SUCCESS] = False
+            features[KEY_ADDRESS] = failed_match.group(3)
             user = failed_match.group(2)
             features[KEY_USER] = user
-            features[KEY_VALID_USER] = user in valid_users
             return features
 
         return features
@@ -83,6 +124,7 @@ class AuthMonitor(object):
         # Return the list of user accounts from passwd.
         users = []
 
+        # Read valid user names out of the passwd file.
         with open('/etc/passwd', mode='r') as pw_file:
             users_re = re.compile(r'[a-z0-9_-]{0,31}')
             contents_str = pw_file.read()
@@ -106,8 +148,14 @@ class AuthMonitor(object):
             # compare it against the model or use it to train the model.
             line = f.stdout.readline()
             if line is not None and len(line) > 1:
-                features = self.extract_features(line, valid_users)
+
+                # Extract features, calculate additional features, and normalize those features.
+                features = self.extract_features(line)
                 if len(features) > 0:
+                    features = self.calculate_features(features, valid_users)
+                    features = self.normalize_features(features)
+
+                    # Either use the features for training or compare then against an existing model.
                     if self.training:
                         self.train_model(features)
                     else:
