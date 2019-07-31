@@ -13,4 +13,4 @@ This project implements machine learning, specifically anomaly detection, to act
 This software uses several other source projects to work properly:
 
 ## License
-MIT
+This software is released under the MIT license, see LICENSE for details.
