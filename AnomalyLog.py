@@ -23,7 +23,7 @@
 # SOFTWARE.
 
 import argparse
-import AuthMonitor
+import AuthLogMonitor
 
 def main():
     """Entry point for the app."""
@@ -39,7 +39,7 @@ def main():
         parser.error(e)
         sys.exit(1)
 
-    mon = AuthMonitor.AuthMonitor(args.config, args.train)
+    mon = AuthLogMonitor.AuthLogMonitor(args.config, args.train)
     mon.start()
 
 if __name__ == '__main__':

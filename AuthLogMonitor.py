@@ -37,11 +37,11 @@ KEY_USER_FAIL_COUNT = "user fail count"
 KEY_ADDR_SUCCESS_COUNT = "addr success count"
 KEY_ADDR_FAIL_COUNT = "addr fail count"
 
-class AuthMonitor(object):
+class AuthLogMonitor(object):
     """Class for monitoring the auth log."""
 
     def __init__(self, config_file, training):
-        super(AuthMonitor, self).__init__()
+        super(AuthLogMonitor, self).__init__()
         self.config_file = config_file
         self.training = training
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
