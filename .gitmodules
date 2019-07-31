@@ -1,0 +1,3 @@
+[submodule "LibIsolationForest"]
+	path = LibIsolationForest
+	url = https://github.com/msimms/LibIsolationForest
