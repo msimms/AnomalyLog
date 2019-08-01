@@ -49,10 +49,11 @@ from isolationforest import IsolationForest
 class AuthLogMonitor(object):
     """Class for monitoring the auth log."""
 
-    def __init__(self, config_file, training):
+    def __init__(self, config_file, training, train_count):
         super(AuthLogMonitor, self).__init__()
         self.config_file = config_file
         self.training = training
+        self.train_count = train_count
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
         self.success_re = re.compile(self.success_re_str)
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
@@ -192,6 +193,11 @@ class AuthLogMonitor(object):
                         num_training_samples = num_training_samples + 1
                     else:
                         self.compare_against_model(features)
+
+                    # Are we done training?
+                    if self.train_count > 0 and num_training_samples > self.train_count:
+                        self.model.create()
+                        self.training = False
 
             # To keep us from busy looping, take a short nap.
             else:

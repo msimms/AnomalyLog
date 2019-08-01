@@ -33,6 +33,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="", help="Configuration file to be used.", required=False)
     parser.add_argument("--train", action="store_true", default=False, help="If set, puts the application into training mode.", required=False)
+    parser.add_argument("--train-count", type=int, default=0, help="If non-zero, the model will be trained with the first N entries.", required=False)
 
     try:
         args = parser.parse_args()
@@ -46,7 +47,7 @@ def main():
             print("Error: A model was not provided. Consider training first.")
             sys.exit(0)
 
-    mon = AuthLogMonitor.AuthLogMonitor(args.config, args.train)
+    mon = AuthLogMonitor.AuthLogMonitor(args.config, args.train, args.train_count)
     mon.start()
 
 if __name__ == '__main__':
