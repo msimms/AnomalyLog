@@ -22,8 +22,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import inspect
+import os
 import re
 import subprocess
+import sys
 import time
 
 INVALID_USER_SUB_STR = "invalid user "
@@ -36,6 +39,12 @@ KEY_USER_SUCCESS_COUNT = "user success count"
 KEY_USER_FAIL_COUNT = "user fail count"
 KEY_ADDR_SUCCESS_COUNT = "addr success count"
 KEY_ADDR_FAIL_COUNT = "addr fail count"
+
+# Locate and load the statistics module (the functions we're using in are made obsolete in Python 3, but we want to work in Python 2, also)
+currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
+libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python2')
+sys.path.insert(0, libforestdir)
+from isolationforest import IsolationForest
 
 class AuthLogMonitor(object):
     """Class for monitoring the auth log."""
@@ -50,12 +59,30 @@ class AuthLogMonitor(object):
         self.failed_re = re.compile(self.failed_re_str)
         self.user_counts = {}
         self.address_counts = {}
+        self.model = IsolationForest.Forest(50, 10)
 
     def train_model(self, features):
+        sample = self.convert_features_to_sample(features)
+        self.model.add_sample(sample)
         print(features)
     
     def compare_against_model(self, features):
+        sample = self.convert_features_to_sample(features)
+        score = self.model.score(sample)
         print(features)
+        print(score)
+
+    def convert_features_to_sample(self, extracted_features):
+        sample = IsolationForest.Sample("")
+        features = []
+        features.append({KEY_SUCCESS: extracted_features[KEY_SUCCESS]})
+        features.append({KEY_VALID_USER: extracted_features[KEY_VALID_USER]})
+        features.append({KEY_USER_SUCCESS_COUNT: extracted_features[KEY_USER_SUCCESS_COUNT]})
+        features.append({KEY_USER_FAIL_COUNT: extracted_features[KEY_USER_FAIL_COUNT]})
+        features.append({KEY_ADDR_SUCCESS_COUNT: extracted_features[KEY_ADDR_SUCCESS_COUNT]})
+        features.append({KEY_ADDR_FAIL_COUNT: extracted_features[KEY_ADDR_FAIL_COUNT]})
+        sample.add_features(features)
+        return sample
 
     def normalize_features(self, features):
         return features
@@ -139,6 +166,8 @@ class AuthLogMonitor(object):
         return users
 
     def start(self):
+        num_training_samples = 0
+
         # Get the list of valid users.
         valid_users = self.list_users()
 
@@ -160,6 +189,7 @@ class AuthLogMonitor(object):
                     # Either use the features for training or compare then against an existing model.
                     if self.training:
                         self.train_model(features)
+                        num_training_samples = num_training_samples + 1
                     else:
                         self.compare_against_model(features)
 

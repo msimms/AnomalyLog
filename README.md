@@ -1,4 +1,4 @@
-# AnomalyLog
+# Anomalous Log Monitor
 
 ## Description
 This project implements machine learning, specifically anomaly detection, to actively monitor the Linux auth log for unusual activity.
@@ -6,8 +6,10 @@ This project implements machine learning, specifically anomaly detection, to act
 ## Installation
 
 ## Execution
+`python Monitor.py --train`
 
 ## Version History
+In development.
 
 ## Tech
 This software uses several other source projects to work properly:

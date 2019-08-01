@@ -23,6 +23,7 @@
 # SOFTWARE.
 
 import argparse
+import sys
 import AuthLogMonitor
 
 def main():
@@ -38,6 +39,12 @@ def main():
     except IOError as e:
         parser.error(e)
         sys.exit(1)
+
+    # If we are not in training mode then we should have a model to load.
+    if not args.train:
+        if len(args.config) == 0:
+            print("Error: A model was not provided. Consider training first.")
+            sys.exit(0)
 
     mon = AuthLogMonitor.AuthLogMonitor(args.config, args.train)
     mon.start()
