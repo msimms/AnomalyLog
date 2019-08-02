@@ -195,7 +195,7 @@ class AuthLogMonitor(object):
                         self.compare_against_model(features)
 
                     # Are we done training?
-                    if self.train_count > 0 and num_training_samples > self.train_count:
+                    if self.training and self.train_count > 0 and num_training_samples > self.train_count:
                         self.model.create()
                         self.training = False
 
