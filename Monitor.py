@@ -23,11 +23,35 @@
 # SOFTWARE.
 
 import argparse
+import io
+import signal
 import sys
+import Alert
 import AuthLogMonitor
+import ConfigParser
+
+g_mon = None
+
+def signal_handler(signal, frame):
+    print("Exiting...")
+    global g_mon
+    if g_mon is not None:
+        g_mon.running = False
+
+def load_config(config_file_name):
+    """Loads the configuration file."""
+    with open(config_file_name) as f:
+        sample_config = f.read()
+    config = ConfigParser.RawConfigParser(allow_no_value=True)
+    config.readfp(io.BytesIO(sample_config))
+    return config
 
 def main():
     """Entry point for the app."""
+    global g_mon
+
+    # Register the signal handler.
+    signal.signal(signal.SIGINT, signal_handler)
 
     # Parse command line options.
     parser = argparse.ArgumentParser()
@@ -41,14 +65,20 @@ def main():
         parser.error(e)
         sys.exit(1)
 
+    # If a configuration file was provided then load it.
+    if len(args.config) > 0:
+        config_obj = load_config(args.config)
+    else:
+        config_obj = None
+
     # If we are not in training mode then we should have a model to load.
     if not args.train:
         if len(args.config) == 0:
-            print("Error: A model was not provided. Consider training first.")
+            print("ERROR: A model was not provided. Consider training first.")
             sys.exit(0)
 
-    mon = AuthLogMonitor.AuthLogMonitor(args.config, args.train, args.train_count)
-    mon.start()
+    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, args.train, args.train_count)
+    g_mon.start()
 
 if __name__ == '__main__':
     main()

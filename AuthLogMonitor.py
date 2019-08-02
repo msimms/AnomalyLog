@@ -28,6 +28,7 @@ import re
 import subprocess
 import sys
 import time
+import ConfigParser
 
 INVALID_USER_SUB_STR = "invalid user "
 
@@ -49,9 +50,10 @@ from isolationforest import IsolationForest
 class AuthLogMonitor(object):
     """Class for monitoring the auth log."""
 
-    def __init__(self, config_file, training, train_count):
+    def __init__(self, config, training, train_count):
         super(AuthLogMonitor, self).__init__()
-        self.config_file = config_file
+        self.running = True
+        self.config = config
         self.training = training
         self.train_count = train_count
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
@@ -62,18 +64,39 @@ class AuthLogMonitor(object):
         self.address_counts = {}
         self.model = IsolationForest.Forest(50, 10)
 
+    def handle_anomaly(self, line, features, score):
+        """Called when an anomaly is detected. Looks in the configuration to determien what action(s) to take."""
+        if not self.config:
+            print("ERROR: An anomaly was detected, but no action was taken because a configuration file was not specified.")
+            return
+        try:
+            action_list_str = self.config.get('General', 'actions')
+            action_list = action_list_str.split(',')
+            for action in actions_list:
+                msg = "An anomaly was detected:\n\tScore: " + str(score) + "\n\tLog Entry: " + line
+                if action == 'Slack':
+                    slack_token = self.config.get('Slack', 'token')
+                    slack_channel = self.config.get('Slack', 'channel')
+                    Alert.post_slack_msg(msg, slack_token, slack_channel)
+        except ConfigParser.NoOptionError:
+            print("ERROR: An anomaly was detected, but no actions were specified in the config.")
+        except ConfigParser.NoSectionError:
+            print("ERROR: An anomaly was detected, but no actions were specified in the config.")
+
     def train_model(self, features):
+        """Adds the features to the training set."""
         sample = self.convert_features_to_sample(features)
         self.model.add_sample(sample)
-        print(features)
     
     def compare_against_model(self, features):
+        """Scores the features against the model."""
         sample = self.convert_features_to_sample(features)
         score = self.model.score(sample)
-        print(features)
-        print(score)
+        return score
 
     def convert_features_to_sample(self, extracted_features):
+        """Takes the features that were extracted or computed from the log file and converts
+           it to a sample object that can be used by the IsolationForest."""
         sample = IsolationForest.Sample("")
         features = []
         features.append({KEY_SUCCESS: extracted_features[KEY_SUCCESS]})
@@ -151,7 +174,7 @@ class AuthLogMonitor(object):
         return features
 
     def list_users(self):
-        # Return the list of user accounts from passwd.
+        """Return the list of user accounts from passwd."""
         users = []
 
         # Read valid user names out of the passwd file.
@@ -168,13 +191,25 @@ class AuthLogMonitor(object):
 
     def start(self):
         num_training_samples = 0
+        threshold = 0
+
+        # If a configuration was provided, then read the threshold value from it.
+        if self.config:
+            try:
+                threshold_str = self.config.get('Model', 'threshold')
+                threshold = float(threshold_str)
+                print("Using " + threshold_str + " as the threshold.")
+            except ConfigParser.NoOptionError:
+                print("ERROR: A threshold configuration was not provided.")
+            except ConfigParser.NoSectionError:
+                print("ERROR: A threshold configuration was not provided.")
 
         # Get the list of valid users.
         valid_users = self.list_users()
 
         # Monitor the auth log.
         f = subprocess.Popen(['tail', '+f', '/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        while True:
+        while self.running:
 
             # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
             # compare it against the model or use it to train the model.
@@ -184,7 +219,11 @@ class AuthLogMonitor(object):
                 # Extract features, calculate additional features, and normalize those features.
                 features = self.extract_features(line)
                 if len(features) > 0:
+
+                    # Calculate derived features.
                     features = self.calculate_features(features, valid_users)
+
+                    # Normalize features.
                     features = self.normalize_features(features)
 
                     # Either use the features for training or compare then against an existing model.
@@ -192,7 +231,11 @@ class AuthLogMonitor(object):
                         self.train_model(features)
                         num_training_samples = num_training_samples + 1
                     else:
-                        self.compare_against_model(features)
+                        score = self.compare_against_model(features)
+                        print(features)
+                        print(score)
+                        if score > threshold:
+                            self.handle_anomaly(line, featurse, score)
 
                     # Are we done training?
                     if self.training and self.train_count > 0 and num_training_samples > self.train_count:
