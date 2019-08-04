@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-requirements = ['numpy', 'slacker']
+requirements = ['flask', 'mako', 'slacker']
 
 setup(
     name='anomalylog',

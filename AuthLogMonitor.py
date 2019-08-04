@@ -27,6 +27,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import ConfigParser
 
@@ -47,15 +48,16 @@ libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python2')
 sys.path.insert(0, libforestdir)
 from isolationforest import IsolationForest
 
-class AuthLogMonitor(object):
+class AuthLogMonitor(threading.Thread):
     """Class for monitoring the auth log."""
 
-    def __init__(self, config, training, train_count):
-        super(AuthLogMonitor, self).__init__()
+    def __init__(self, config, training, train_count, verbose):
+        threading.Thread.__init__(self)
         self.running = True
         self.config = config
         self.training = training
         self.train_count = train_count
+        self.verbose = verbose
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
         self.success_re = re.compile(self.success_re_str)
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
@@ -138,7 +140,7 @@ class AuthLogMonitor(object):
             user_counts_value[1] = user_counts_value[1] + 1
             addr_counts_value[1] = addr_counts_value[1] + 1
         self.user_counts[user] = user_counts_value
-        self.address_counts[user] = addr_counts_value
+        self.address_counts[address] = addr_counts_value
         features[KEY_USER_SUCCESS_COUNT] = user_counts_value[0]
         features[KEY_USER_FAIL_COUNT] = user_counts_value[1]
         features[KEY_ADDR_SUCCESS_COUNT] = addr_counts_value[0]
@@ -167,7 +169,6 @@ class AuthLogMonitor(object):
             user = failed_match.group(2)
             if user.find(INVALID_USER_SUB_STR) == 0:
                 user = user[len(INVALID_USER_SUB_STR):]
-
             features[KEY_USER] = user
             return features
 
@@ -189,7 +190,7 @@ class AuthLogMonitor(object):
 
         return users
 
-    def start(self):
+    def run(self):
         num_training_samples = 0
         threshold = 0
 
@@ -230,12 +231,20 @@ class AuthLogMonitor(object):
                     if self.training:
                         self.train_model(features)
                         num_training_samples = num_training_samples + 1
+
+                        # If we're in verbose mode then print out the feature.
+                        if self.verbose:
+                            print(features)
+                            print("Used for training.")
                     else:
                         score = self.compare_against_model(features)
-                        print(features)
-                        print(score)
                         if score > threshold:
-                            self.handle_anomaly(line, featurse, score)
+                            self.handle_anomaly(line, features, score)
+
+                        # If we're in verbose mode then print out the feature and it's score.
+                        if self.verbose:
+                            print(features)
+                            print(score)
 
                     # Are we done training?
                     if self.training and self.train_count > 0 and num_training_samples > self.train_count:
