@@ -59,6 +59,16 @@ def load_config(config_file_name):
     config.readfp(io.BytesIO(sample_config))
     return config
 
+@g_flask_app.route('/css/<file_name>')
+def css(file_name):
+    """Returns the CSS page."""
+    try:
+        print(file_name)
+        return flask.send_from_directory('css', file_name)
+    except:
+        pass
+    return ""
+
 @g_flask_app.route('/')
 def index():
     """Renders the index page."""
