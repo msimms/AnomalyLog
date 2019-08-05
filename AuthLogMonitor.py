@@ -38,6 +38,13 @@ else:
     from configparser import ConfigParser
     import statistics
 
+CONFIG_KEY_GENERAL = "General"
+CONFIG_KEY_ACTIONS = "actions"
+CONFIG_KEY_ALERT_ON_SUCCESS = "only alert on successful login"
+CONFIG_KEY_SLACK_KEY = "key"
+CONFIG_KEY_SLACK_CHANNEL = "channel"
+CONFIG_ACTION_SLACK = 'Slack'
+
 INVALID_USER_SUB_STR = "invalid user "
 
 KEY_SUCCESS = "successful login"
@@ -93,18 +100,31 @@ class AuthLogMonitor(threading.Thread):
             print("ERROR: An anomaly was detected, but no action was taken because a configuration file was not specified.")
             return
 
-        action_slack = 'Slack'
+        # Only alert on successful logins.
+        alert_on_success = True
+        try:
+            if python_version < 3:
+                alert_on_success = self.config.get(CONFIG_KEY_GENERAL, CONFIG_KEY_GENERAL)
+            else:
+                alert_on_success = self.config[CONFIG_KEY_GENERAL][CONFIG_KEY_GENERAL]
+        except:
+            pass
+        successful_logon = features[KEY_SUCCESS]
+        if alert_on_success and not successful_logon:
+            return
+
+        # The Slack message we will use.
         slack_msg = "An anomaly was detected on " + self.hostname + ":\n\tScore: " + str(score) + "\n\tLog Entry: " + line
 
         # It's easier just to code up two versions of this, one for python2 and one for python3.
         if python_version < 3:
             try:
-                action_list_str = self.config.get('General', 'actions')
+                action_list_str = self.config.get(CONFIG_KEY_GENERAL, CONFIG_KEY_ACTIONS)
                 action_list = action_list_str.split(',')
                 for action in action_list:
-                    if action == action_slack:
-                        slack_token = self.config.get(action_slack, 'key')
-                        slack_channel = self.config.get(action_slack, 'channel')
+                    if action == CONFIG_ACTION_SLACK:
+                        slack_token = self.config.get(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_KEY)
+                        slack_channel = self.config.get(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_CHANNEL)
                         Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
             except ConfigParser.NoOptionError:
                 print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
@@ -112,12 +132,12 @@ class AuthLogMonitor(threading.Thread):
                 print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
         else:
             try:
-                action_list_str = self.config['General']['actions']
+                action_list_str = self.config[CONFIG_KEY_GENERAL][CONFIG_KEY_ACTIONS]
                 action_list = action_list_str.split(',')
                 for action in action_list:
-                    if action == action_slack:
-                        slack_token = self.config[action_slack]['key']
-                        slack_channel = self.config[action_slack]['channel']
+                    if action == CONFIG_ACTION_SLACK:
+                        slack_token = self.config[CONFIG_ACTION_SLACK][CONFIG_KEY_SLACK_KEY]
+                        slack_channel = self.config[CONFIG_ACTION_SLACK][CONFIG_KEY_SLACK_CHANNEL]
                         Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
             except:
                 print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
