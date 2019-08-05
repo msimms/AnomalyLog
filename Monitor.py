@@ -33,6 +33,7 @@ import traceback
 import Alert
 import AuthLogMonitor
 
+# Python 2 and Python 3 have different config parsers.
 python_version = sys.version_info[0]
 if python_version < 3:
     import ConfigParser
@@ -55,6 +56,13 @@ def signal_handler(signal, frame):
     if g_mon is not None:
         g_mon.running = False
     sys.exit(0)
+
+def get_hostname():
+    """Returns the hostname, from /etc/hostname."""
+    hostname = "Unknown"
+    with open('/etc/hostname') as f:
+        hostname = f.read()
+    return hostname.rstrip()
 
 def load_config(config_file_name):
     """Loads the configuration file."""
@@ -141,7 +149,9 @@ def main():
 
     # Start the thread that monitors the auth log.
     print("Start auth log monitoring.")
-    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, args.train_count, args.verbose)
+    hostname = get_hostname()
+    print(hostname)
+    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, hostname, args.train_count, args.verbose)
     g_mon.start()
 
     # Start the web interface.

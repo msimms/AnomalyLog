@@ -61,10 +61,11 @@ from isolationforest import IsolationForest
 class AuthLogMonitor(threading.Thread):
     """Class for monitoring the auth log."""
 
-    def __init__(self, config, train_count, verbose):
+    def __init__(self, config, hostname, train_count, verbose):
         threading.Thread.__init__(self)
         self.running = True
         self.config = config
+        self.hostname = hostname
         self.train_count = train_count
         self.verbose = verbose
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
@@ -93,7 +94,7 @@ class AuthLogMonitor(threading.Thread):
             return
 
         action_slack = 'Slack'
-        slack_msg = "An anomaly was detected:\n\tScore: " + str(score) + "\n\tLog Entry: " + line
+        slack_msg = "An anomaly was detected on " + self.hostname + ":\n\tScore: " + str(score) + "\n\tLog Entry: " + line
 
         # It's easier just to code up two versions of this, one for python2 and one for python3.
         if python_version < 3:
