@@ -9,7 +9,7 @@ This project implements machine learning, specifically anomaly detection, to act
  * `git submodule update --init`
 
 ## Execution
-`python Monitor.py --train --config <config file>`
+`python3 Monitor.py --train --config <config file>`
 
 ## Version History
 In development.

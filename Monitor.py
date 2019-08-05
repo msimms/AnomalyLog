@@ -33,7 +33,8 @@ import traceback
 import Alert
 import AuthLogMonitor
 
-if sys.version_info[0] < 3:
+python_version = sys.version_info[0]
+if python_version < 3:
     import ConfigParser
 else:
     from configparser import ConfigParser
@@ -57,14 +58,14 @@ def signal_handler(signal, frame):
 
 def load_config(config_file_name):
     """Loads the configuration file."""
-    with open(config_file_name) as f:
-        sample_config = f.read()
-    if sys.version_info[0] < 3:
+    if python_version < 3:
+        with open(config_file_name) as f:
+            sample_config = f.read()
         config = ConfigParser.RawConfigParser(allow_no_value=True)
         config.readfp(io.BytesIO(sample_config))
     else:
-        config = ConfigParser(allow_no_value=True)
-        config.read(sample_config)
+        config = ConfigParser()
+        config.read(config_file_name)
     return config
 
 @g_flask_app.route('/css/<file_name>')
@@ -83,6 +84,7 @@ def index():
     global g_mon
     global g_root_dir
 
+    # Format the user counts.
     user_counts_str = ""
     user_counts = g_mon.user_counts
     for user in user_counts:
@@ -93,6 +95,7 @@ def index():
         user_counts_str = user_counts_str + str(counts[1]) + "</td><td>"
         user_counts_str = user_counts_str + "</td><tr>\n"
 
+    # Format the address counts.
     address_counts_str = ""
     address_counts = g_mon.address_counts
     for address in address_counts:
@@ -103,8 +106,9 @@ def index():
         address_counts_str = address_counts_str + str(counts[1]) + "</td><td>"
         address_counts_str = address_counts_str + "</td><tr>\n"
 
+    # Render the page.
     html_file = os.path.join(g_root_dir, 'html', 'index.html')
-    my_template = Template(filename=html_file, module_directory=g_tempmod_dir)
+    my_template = Template(filename=html_file, module_directory=g_tempmod_dir, input_encoding='utf-8', output_encoding='utf-8')
     return my_template.render(user_counts=user_counts_str, address_counts=address_counts_str)
 
 def main():
@@ -119,7 +123,6 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true", default=False, help="Prevents the app from going into the background.", required=False)
     parser.add_argument("--config", default="", help="Configuration file to be used.", required=False)
-    parser.add_argument("--train", action="store_true", default=False, help="If set, puts the application into training mode.", required=False)
     parser.add_argument("--train-count", type=int, default=100, help="If non-zero, the model will be trained with the first N entries.", required=False)
     parser.add_argument("--verbose", action="store_true", default=False, help="Verbose mode.", required=False)
     parser.add_argument("--webui", action="store_true", default=False, help="If TRUE, starts the web-based user interface.", required=False)
@@ -136,16 +139,12 @@ def main():
     else:
         config_obj = None
 
-    # If we are not in training mode then we should have a model to load.
-    if not args.train:
-        if len(args.config) == 0:
-            print("ERROR: A model was not provided. Consider training first.")
-            sys.exit(0)
-
+    # Start the thread that monitors the auth log.
     print("Start auth log monitoring.")
-    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, args.train, args.train_count, args.verbose)
+    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, args.train_count, args.verbose)
     g_mon.start()
 
+    # Start the web interface.
     if args.webui:
         print("Start the web interface.")
         mako.collection_size = 100

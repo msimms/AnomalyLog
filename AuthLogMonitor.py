@@ -29,11 +29,14 @@ import subprocess
 import sys
 import threading
 import time
+import Alert
 
-if sys.version_info[0] < 3:
+python_version = sys.version_info[0]
+if python_version < 3:
     import ConfigParser
 else:
     from configparser import ConfigParser
+    import statistics
 
 INVALID_USER_SUB_STR = "invalid user "
 
@@ -48,7 +51,7 @@ KEY_ADDR_FAIL_COUNT = "addr fail count"
 
 # Locate and load the statistics module (the functions we're using in are made obsolete in Python 3, but we want to work in Python 2, also)
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-if sys.version_info[0] < 3:
+if python_version < 3:
     libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python2')
 else:
     libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python3')
@@ -58,11 +61,10 @@ from isolationforest import IsolationForest
 class AuthLogMonitor(threading.Thread):
     """Class for monitoring the auth log."""
 
-    def __init__(self, config, training, train_count, verbose):
+    def __init__(self, config, train_count, verbose):
         threading.Thread.__init__(self)
         self.running = True
         self.config = config
-        self.training = training
         self.train_count = train_count
         self.verbose = verbose
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
@@ -72,31 +74,58 @@ class AuthLogMonitor(threading.Thread):
         self.user_counts = {}
         self.address_counts = {}
         self.model = IsolationForest.Forest(50, 10)
+        self.recent_scores = []
 
-    def handle_anomaly(self, line, features, score):
+    def update_stats(self, score):
+        """Appends the score to the running list of scores and computes the mean and standard deviation."""
+        if sys.version_info[0] >= 3:
+            self.recent_scores.append(score)
+            if len(self.recent_scores) > 50:
+                mean = statistics.mean(self.recent_scores)
+                stddev = statistics.stdev(self.recent_scores)
+                return mean + (3.0 * stddev)
+        return 0
+
+    def handle_anomaly(self, line, features, score, threshold):
         """Called when an anomaly is detected. Looks in the configuration to determien what action(s) to take."""
         if not self.config:
             print("ERROR: An anomaly was detected, but no action was taken because a configuration file was not specified.")
             return
-        try:
-            action_list_str = self.config.get('General', 'actions')
-            action_list = action_list_str.split(',')
-            for action in actions_list:
-                msg = "An anomaly was detected:\n\tScore: " + str(score) + "\n\tLog Entry: " + line
-                if action == 'Slack':
-                    slack_token = self.config.get('Slack', 'token')
-                    slack_channel = self.config.get('Slack', 'channel')
-                    Alert.post_slack_msg(msg, slack_token, slack_channel)
-        except ConfigParser.NoOptionError:
-            print("ERROR: An anomaly was detected, but no actions were specified in the config.")
-        except ConfigParser.NoSectionError:
-            print("ERROR: An anomaly was detected, but no actions were specified in the config.")
+
+        action_slack = 'Slack'
+        slack_msg = "An anomaly was detected:\n\tScore: " + str(score) + "\n\tLog Entry: " + line
+
+        # It's easier just to code up two versions of this, one for python2 and one for python3.
+        if python_version < 3:
+            try:
+                action_list_str = self.config.get('General', 'actions')
+                action_list = action_list_str.split(',')
+                for action in action_list:
+                    if action == action_slack:
+                        slack_token = self.config.get(action_slack, 'key')
+                        slack_channel = self.config.get(action_slack, 'channel')
+                        Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
+            except ConfigParser.NoOptionError:
+                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
+            except ConfigParser.NoSectionError:
+                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
+        else:
+            try:
+                action_list_str = self.config['General']['actions']
+                action_list = action_list_str.split(',')
+                for action in action_list:
+                    if action == action_slack:
+                        slack_token = self.config[action_slack]['key']
+                        slack_channel = self.config[action_slack]['channel']
+                        Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
+            except:
+                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
 
     def train_model(self, features):
         """Adds the features to the training set."""
         sample = self.convert_features_to_sample(features)
         self.model.add_sample(sample)
-    
+
     def compare_against_model(self, features):
         """Scores the features against the model."""
         sample = self.convert_features_to_sample(features)
@@ -198,19 +227,9 @@ class AuthLogMonitor(threading.Thread):
         return users
 
     def run(self):
+        training = True
         num_training_samples = 0
         threshold = 0
-
-        # If a configuration was provided, then read the threshold value from it.
-        if self.config:
-            try:
-                threshold_str = self.config.get('Model', 'threshold')
-                threshold = float(threshold_str)
-                print("Using " + threshold_str + " as the threshold.")
-            except ConfigParser.NoOptionError:
-                print("ERROR: A threshold configuration was not provided.")
-            except ConfigParser.NoSectionError:
-                print("ERROR: A threshold configuration was not provided.")
 
         # Get the list of valid users.
         valid_users = self.list_users()
@@ -221,7 +240,7 @@ class AuthLogMonitor(threading.Thread):
 
             # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
             # compare it against the model or use it to train the model.
-            line = f.stdout.readline()
+            line = str(f.stdout.readline())
             if line is not None and len(line) > 1:
 
                 # Extract features, calculate additional features, and normalize those features.
@@ -235,8 +254,12 @@ class AuthLogMonitor(threading.Thread):
                     features = self.normalize_features(features)
 
                     # Either use the features for training or compare then against an existing model.
-                    if self.training:
+                    if training:
+
+                        # Train the model.
                         self.train_model(features)
+
+                        # Update the count of training samples.
                         num_training_samples = num_training_samples + 1
 
                         # If we're in verbose mode then print out the feature.
@@ -244,9 +267,16 @@ class AuthLogMonitor(threading.Thread):
                             print(features)
                             print("Used for training.")
                     else:
+
+                        # Score the sample against the model.
                         score = self.compare_against_model(features)
-                        if score > threshold:
-                            self.handle_anomaly(line, features, score)
+
+                        # Update the mean and standard deviation.
+                        threshold = self.update_stats(score)
+
+                        # If we're over the threshold then handle the anomaly.
+                        if threshold > 0 and score > threshold:
+                            self.handle_anomaly(line, features, score, threshold)
 
                         # If we're in verbose mode then print out the feature and it's score.
                         if self.verbose:
@@ -254,9 +284,9 @@ class AuthLogMonitor(threading.Thread):
                             print(score)
 
                     # Are we done training?
-                    if self.training and self.train_count > 0 and num_training_samples > self.train_count:
+                    if training and self.train_count > 0 and num_training_samples > self.train_count:
                         self.model.create()
-                        self.training = False
+                        training = False
 
             # To keep us from busy looping, take a short nap.
             else:
