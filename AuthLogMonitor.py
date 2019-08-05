@@ -29,7 +29,11 @@ import subprocess
 import sys
 import threading
 import time
-import ConfigParser
+
+if sys.version_info[0] < 3:
+    import ConfigParser
+else:
+    from configparser import ConfigParser
 
 INVALID_USER_SUB_STR = "invalid user "
 
@@ -44,7 +48,10 @@ KEY_ADDR_FAIL_COUNT = "addr fail count"
 
 # Locate and load the statistics module (the functions we're using in are made obsolete in Python 3, but we want to work in Python 2, also)
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
-libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python2')
+if sys.version_info[0] < 3:
+    libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python2')
+else:
+    libforestdir = os.path.join(currentdir, 'LibIsolationForest', 'python3')
 sys.path.insert(0, libforestdir)
 from isolationforest import IsolationForest
 

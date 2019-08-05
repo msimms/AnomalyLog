@@ -32,7 +32,11 @@ import sys
 import traceback
 import Alert
 import AuthLogMonitor
-import ConfigParser
+
+if sys.version_info[0] < 3:
+    import ConfigParser
+else:
+    from configparser import ConfigParser
 
 from mako.lookup import TemplateLookup
 from mako.template import Template
@@ -55,8 +59,12 @@ def load_config(config_file_name):
     """Loads the configuration file."""
     with open(config_file_name) as f:
         sample_config = f.read()
-    config = ConfigParser.RawConfigParser(allow_no_value=True)
-    config.readfp(io.BytesIO(sample_config))
+    if sys.version_info[0] < 3:
+        config = ConfigParser.RawConfigParser(allow_no_value=True)
+        config.readfp(io.BytesIO(sample_config))
+    else:
+        config = ConfigParser(allow_no_value=True)
+        config.read(sample_config)
     return config
 
 @g_flask_app.route('/css/<file_name>')
