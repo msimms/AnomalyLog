@@ -14,14 +14,20 @@
 
 </head>
 
-<h1>Attempted User Logins:</h1>
-<table>
-${user_counts}
-</table>
+<div class="splitl left">
+    <h1>Attempted User Logins:</h1>
+    <table>
+    <td>Name</td><td>Num Successes</td><td>Num Failures</td><tr>
+    ${user_counts}
+    </table>
+</div>
 
-<h1>Attempted Login Addresses:</h1>
-<table>
-${address_counts}
-</table>
+<div class="splitl right">
+    <h1>Attempted Login Addresses:</h1>
+    <table>
+    <td>Address</td><td>Num Successes</td><td>Num Failures</td><tr>
+    ${address_counts}
+    </table>
+</div>
 
 </html>
