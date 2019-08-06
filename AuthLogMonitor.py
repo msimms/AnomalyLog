@@ -312,7 +312,9 @@ class AuthLogMonitor(threading.Thread):
 
                 # To keep us from busy looping, take a short nap.
                 else:
+                    print("ERROR: Unable to read line from the auth.log.\n")
                     time.sleep(1)
 
             except:
                 print("ERROR: Unable to open the auth.log.\n")
+                self.running = False

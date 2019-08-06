@@ -59,10 +59,12 @@ def signal_handler(signal, frame):
 
 def get_hostname():
     """Returns the hostname, from /etc/hostname."""
-    hostname = "Unknown"
+    hostname = ""
     with open('/etc/hostname') as f:
-        hostname = f.read()
-    return hostname.rstrip()
+        hostname = f.read().rstrip()
+    if len(hostname) == 0:
+        hostname = "Unknown"
+    return hostname
 
 def load_config(config_file_name):
     """Loads the configuration file."""
@@ -150,7 +152,6 @@ def main():
     # Start the thread that monitors the auth log.
     print("Start auth log monitoring.")
     hostname = get_hostname()
-    print(hostname)
     g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, hostname, args.train_count, args.verbose)
     g_mon.start()
 
