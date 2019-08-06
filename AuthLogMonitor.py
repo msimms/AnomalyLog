@@ -261,54 +261,58 @@ class AuthLogMonitor(threading.Thread):
 
             # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
             # compare it against the model or use it to train the model.
-            line = str(f.stdout.readline())
-            if line is not None and len(line) > 1:
+            try:
+                line = str(f.stdout.readline())
+                if line is not None and len(line) > 1:
 
-                # Extract features, calculate additional features, and normalize those features.
-                features = self.extract_features(line)
-                if len(features) > 0:
+                    # Extract features, calculate additional features, and normalize those features.
+                    features = self.extract_features(line)
+                    if len(features) > 0:
 
-                    # Calculate derived features.
-                    features = self.calculate_features(features, valid_users)
+                        # Calculate derived features.
+                        features = self.calculate_features(features, valid_users)
 
-                    # Normalize features.
-                    features = self.normalize_features(features)
+                        # Normalize features.
+                        features = self.normalize_features(features)
 
-                    # Either use the features for training or compare then against an existing model.
-                    if training:
+                        # Either use the features for training or compare then against an existing model.
+                        if training:
 
-                        # Train the model.
-                        self.train_model(features)
+                            # Train the model.
+                            self.train_model(features)
 
-                        # Update the count of training samples.
-                        num_training_samples = num_training_samples + 1
+                            # Update the count of training samples.
+                            num_training_samples = num_training_samples + 1
 
-                        # If we're in verbose mode then print out the feature.
-                        if self.verbose:
-                            print(features)
-                            print("Used for training.")
-                    else:
+                            # If we're in verbose mode then print out the feature.
+                            if self.verbose:
+                                print(features)
+                                print("Used for training.")
+                        else:
 
-                        # Score the sample against the model.
-                        score = self.compare_against_model(features)
+                            # Score the sample against the model.
+                            score = self.compare_against_model(features)
 
-                        # Update the mean and standard deviation.
-                        threshold = self.update_stats(score)
+                            # Update the mean and standard deviation.
+                            threshold = self.update_stats(score)
 
-                        # If we're over the threshold then handle the anomaly.
-                        if threshold > 0 and score > threshold:
-                            self.handle_anomaly(line, features, score, threshold)
+                            # If we're over the threshold then handle the anomaly.
+                            if threshold > 0 and score > threshold:
+                                self.handle_anomaly(line, features, score, threshold)
 
-                        # If we're in verbose mode then print out the feature and it's score.
-                        if self.verbose:
-                            print(features)
-                            print(score)
+                            # If we're in verbose mode then print out the feature and it's score.
+                            if self.verbose:
+                                print(features)
+                                print(score)
 
-                    # Are we done training?
-                    if training and self.train_count > 0 and num_training_samples > self.train_count:
-                        self.model.create()
-                        training = False
+                        # Are we done training?
+                        if training and self.train_count > 0 and num_training_samples > self.train_count:
+                            self.model.create()
+                            training = False
 
-            # To keep us from busy looping, take a short nap.
-            else:
-                time.sleep(1)
+                # To keep us from busy looping, take a short nap.
+                else:
+                    time.sleep(1)
+
+            except:
+                print("ERROR: Unable to open the auth.log.\n")
