@@ -262,10 +262,11 @@ class AuthLogMonitor(threading.Thread):
             # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
             # compare it against the model or use it to train the model.
             try:
-                line = str(f.stdout.readline())
-                if line is not None and len(line) > 1:
+                temp_line = f.stdout.readline()
+                if temp_line is not None and len(temp_line) > 1:
 
                     # Extract features, calculate additional features, and normalize those features.
+                    line = str(temp_line)
                     features = self.extract_features(line)
                     if len(features) > 0:
 
