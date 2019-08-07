@@ -22,6 +22,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import array
 import inspect
 import os
 import re
@@ -56,6 +57,8 @@ KEY_USER_FAIL_COUNT = "user fail count"
 KEY_ADDR_SUCCESS_COUNT = "addr success count"
 KEY_ADDR_FAIL_COUNT = "addr fail count"
 
+NUM_SCORES = 100
+
 # Locate and load the statistics module (the functions we're using in are made obsolete in Python 3, but we want to work in Python 2, also)
 currentdir = os.path.dirname(os.path.abspath(inspect.getfile(inspect.currentframe())))
 if python_version < 3:
@@ -82,19 +85,22 @@ class AuthLogMonitor(threading.Thread):
         self.user_counts = {}
         self.address_counts = {}
         self.model = IsolationForest.Forest(50, 10)
-        self.recent_scores = []
+        self.recent_scores = array.array('d')
+        self.threshold = 0.0
 
     def update_stats(self, score):
         """Appends the score to the running list of scores and computes the mean and standard deviation."""
         if sys.version_info[0] >= 3:
-            self.recent_scores.append(score)
-            if len(self.recent_scores) > 50:
+            self.recent_scores.extend([score])
+
+            # Periodically re-compute the threshold. We only do this periodically to keep our CPU utilization down.
+            if len(self.recent_scores) > NUM_SCORES:
                 mean = statistics.mean(self.recent_scores)
                 stddev = statistics.stdev(self.recent_scores)
-                return mean + (3.0 * stddev)
-        return 0
+                self.threshold = mean + (3.0 * stddev)
+                self.recent_scores = self.recent_scores[NUM_SCORES / 2:]
 
-    def handle_anomaly(self, line, features, score, threshold):
+    def handle_anomaly(self, line, features, score):
         """Called when an anomaly is detected. Looks in the configuration to determien what action(s) to take."""
         if not self.config:
             print("ERROR: An anomaly was detected, but no action was taken because a configuration file was not specified.")
@@ -127,9 +133,9 @@ class AuthLogMonitor(threading.Thread):
                         slack_channel = self.config.get(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_CHANNEL)
                         Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
             except ConfigParser.NoOptionError:
-                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
+                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(self.threshold) + ".")
             except ConfigParser.NoSectionError:
-                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
+                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(self.threshold) + ".")
         else:
             try:
                 action_list_str = self.config[CONFIG_KEY_GENERAL][CONFIG_KEY_ACTIONS]
@@ -140,7 +146,7 @@ class AuthLogMonitor(threading.Thread):
                         slack_channel = self.config[CONFIG_ACTION_SLACK][CONFIG_KEY_SLACK_CHANNEL]
                         Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
             except:
-                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(threshold) + ".")
+                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(self.threshold) + ".")
 
     def train_model(self, features):
         """Adds the features to the training set."""
@@ -250,7 +256,6 @@ class AuthLogMonitor(threading.Thread):
     def run(self):
         training = True
         num_training_samples = 0
-        threshold = 0
 
         # Get the list of valid users.
         valid_users = self.list_users()
@@ -295,11 +300,11 @@ class AuthLogMonitor(threading.Thread):
                             score = self.compare_against_model(features)
 
                             # Update the mean and standard deviation.
-                            threshold = self.update_stats(score)
+                            self.update_stats(score)
 
                             # If we're over the threshold then handle the anomaly.
-                            if threshold > 0 and score > threshold:
-                                self.handle_anomaly(line, features, score, threshold)
+                            if self.threshold > 0 and score > self.threshold:
+                                self.handle_anomaly(line, features, score)
 
                             # If we're in verbose mode then print out the feature and it's score.
                             if self.verbose:
