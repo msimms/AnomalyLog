@@ -304,7 +304,7 @@ class AuthLogMonitor(threading.Thread):
                             self.update_stats(score)
 
                             # If we're over the threshold then handle the anomaly.
-                            if self.threshold > 0 and score > self.threshold:
+                            if self.threshold > 0.1 and score > self.threshold:
                                 self.handle_anomaly(line, features, score)
 
                             # If we're in verbose mode then print out the feature and it's score.
