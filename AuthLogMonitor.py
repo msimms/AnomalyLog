@@ -98,7 +98,8 @@ class AuthLogMonitor(threading.Thread):
                 mean = statistics.mean(self.recent_scores)
                 stddev = statistics.stdev(self.recent_scores)
                 self.threshold = mean + (3.0 * stddev)
-                self.recent_scores = self.recent_scores[NUM_SCORES / 2:]
+                half = int(NUM_SCORES / 2)
+                self.recent_scores = self.recent_scores[half:]
 
     def handle_anomaly(self, line, features, score):
         """Called when an anomaly is detected. Looks in the configuration to determien what action(s) to take."""
