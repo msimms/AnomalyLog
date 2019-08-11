@@ -60,9 +60,12 @@ def signal_handler(signal, frame):
 def get_hostname():
     """Returns the hostname, from /etc/hostname."""
     hostname = ""
-    with open('/etc/hostname') as f:
-        hostname = f.read().rstrip()
-    if len(hostname) == 0:
+    try:
+        with open('/etc/hostname') as f:
+            hostname = f.read().rstrip()
+        if len(hostname) == 0:
+            hostname = "Unknown"
+    except:
         hostname = "Unknown"
     return hostname
 
@@ -133,7 +136,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--debug", action="store_true", default=False, help="Prevents the app from going into the background.", required=False)
     parser.add_argument("--config", default="", help="Configuration file to be used.", required=False)
-    parser.add_argument("--train-count", type=int, default=100, help="If non-zero, the model will be trained with the first N entries.", required=False)
+    parser.add_argument("--file-to-monitor", default="/var/log/auth.log", help="File to monitor, by default, it is the auth.log.", required=False)
     parser.add_argument("--verbose", action="store_true", default=False, help="Verbose mode.", required=False)
     parser.add_argument("--webui", action="store_true", default=False, help="If TRUE, starts the web-based user interface.", required=False)
 
@@ -152,7 +155,7 @@ def main():
     # Start the thread that monitors the auth log.
     print("Start auth log monitoring.")
     hostname = get_hostname()
-    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, hostname, args.train_count, args.verbose)
+    g_mon = AuthLogMonitor.AuthLogMonitor(config_obj, hostname, args.file_to_monitor, args.verbose)
     g_mon.start()
 
     # Start the web interface.

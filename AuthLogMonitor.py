@@ -39,15 +39,19 @@ else:
     from configparser import ConfigParser
     import statistics
 
-CONFIG_KEY_GENERAL = "General"
+# Config items in the General section.
+CONFIG_SECTION_GENERAL = "General"
 CONFIG_KEY_ACTIONS = "actions"
-CONFIG_KEY_ALERT_ON_SUCCESS = "only alert on successful login"
+CONFIG_KEY_ALERT_ON_SUCCESSFUL_LOGIN = "only alert on successful login"
 CONFIG_KEY_SLACK_KEY = "key"
 CONFIG_KEY_SLACK_CHANNEL = "channel"
 CONFIG_ACTION_SLACK = 'Slack'
 
-INVALID_USER_SUB_STR = "invalid user "
+# Config items in the Training section.
+CONFIG_SECTION_TRAINING = "Training"
+CONFIG_KEY_TRAINING_COUNT = "count"
 
+# Features
 KEY_SUCCESS = "successful login"
 KEY_ADDRESS = "addr"
 KEY_USER = "user"
@@ -56,6 +60,8 @@ KEY_USER_SUCCESS_COUNT = "user success count"
 KEY_USER_FAIL_COUNT = "user fail count"
 KEY_ADDR_SUCCESS_COUNT = "addr success count"
 KEY_ADDR_FAIL_COUNT = "addr fail count"
+
+INVALID_USER_SUB_STR = "invalid user "
 
 NUM_SCORES = 100
 
@@ -71,12 +77,12 @@ from isolationforest import IsolationForest
 class AuthLogMonitor(threading.Thread):
     """Class for monitoring the auth log."""
 
-    def __init__(self, config, hostname, train_count, verbose):
+    def __init__(self, config, hostname, file_to_monitor, verbose):
         threading.Thread.__init__(self)
         self.running = True
         self.config = config
         self.hostname = hostname
-        self.train_count = train_count
+        self.file_to_monitor = file_to_monitor
         self.verbose = verbose
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
         self.success_re = re.compile(self.success_re_str)
@@ -87,6 +93,17 @@ class AuthLogMonitor(threading.Thread):
         self.model = IsolationForest.Forest(50, 10)
         self.recent_scores = array.array('d')
         self.threshold = 0.0
+
+    def get_from_config(self, section, key):
+        """Handles the differences between python2 and python3 in reading the config object."""
+        try:
+            if python_version < 3:
+                return self.config.get(section, key)
+            else:
+                return self.config[section][key]
+        except:
+            pass
+        return None
 
     def update_stats(self, score):
         """Appends the score to the running list of scores and computes the mean and standard deviation."""
@@ -108,14 +125,7 @@ class AuthLogMonitor(threading.Thread):
             return
 
         # Only alert on successful logins.
-        alert_on_success = True
-        try:
-            if python_version < 3:
-                alert_on_success = self.config.get(CONFIG_KEY_GENERAL, CONFIG_KEY_GENERAL)
-            else:
-                alert_on_success = self.config[CONFIG_KEY_GENERAL][CONFIG_KEY_GENERAL]
-        except:
-            pass
+        alert_on_success = self.get_from_config(CONFIG_SECTION_GENERAL, CONFIG_KEY_ALERT_ON_SUCCESSFUL_LOGIN)
         successful_logon = features[KEY_SUCCESS]
         if alert_on_success and not successful_logon:
             return
@@ -123,31 +133,14 @@ class AuthLogMonitor(threading.Thread):
         # The Slack message we will use.
         slack_msg = "An anomaly was detected on " + self.hostname + ":\n\tScore: " + str(score) + "\n\tLog Entry: " + line
 
-        # It's easier just to code up two versions of this, one for python2 and one for python3.
-        if python_version < 3:
-            try:
-                action_list_str = self.config.get(CONFIG_KEY_GENERAL, CONFIG_KEY_ACTIONS)
-                action_list = action_list_str.split(',')
-                for action in action_list:
-                    if action == CONFIG_ACTION_SLACK:
-                        slack_token = self.config.get(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_KEY)
-                        slack_channel = self.config.get(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_CHANNEL)
-                        Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
-            except ConfigParser.NoOptionError:
-                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(self.threshold) + ".")
-            except ConfigParser.NoSectionError:
-                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(self.threshold) + ".")
-        else:
-            try:
-                action_list_str = self.config[CONFIG_KEY_GENERAL][CONFIG_KEY_ACTIONS]
-                action_list = action_list_str.split(',')
-                for action in action_list:
-                    if action == CONFIG_ACTION_SLACK:
-                        slack_token = self.config[CONFIG_ACTION_SLACK][CONFIG_KEY_SLACK_KEY]
-                        slack_channel = self.config[CONFIG_ACTION_SLACK][CONFIG_KEY_SLACK_CHANNEL]
-                        Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
-            except:
-                print("ERROR: An anomaly was detected, but no actions were specified in the config. Score: " + str(score) + ". Threshold: " + str(self.threshold) + ".")
+        # Handl each anomoly action.
+        action_list_str = self.get_from_config(CONFIG_KEY_GENERAL, CONFIG_KEY_ACTIONS)
+        action_list = action_list_str.split(',')
+        for action in action_list:
+            if action == CONFIG_ACTION_SLACK:
+                slack_token = self.get_from_config(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_KEY)
+                slack_channel = self.get_from_config(CONFIG_ACTION_SLACK, CONFIG_KEY_SLACK_CHANNEL)
+                Alert.post_slack_msg(slack_msg, slack_token, slack_channel)
 
     def train_model(self, features):
         """Adds the features to the training set."""
@@ -257,12 +250,13 @@ class AuthLogMonitor(threading.Thread):
     def run(self):
         training = True
         num_training_samples = 0
+        train_count = int(self.get_from_config(CONFIG_SECTION_TRAINING, CONFIG_KEY_TRAINING_COUNT))
 
         # Get the list of valid users.
         valid_users = self.list_users()
 
         # Monitor the auth log.
-        f = subprocess.Popen(['tail', '+f', '/var/log/auth.log'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        f = subprocess.Popen(['tail', '+f', self.file_to_monitor], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         while self.running:
 
             # Do we have a new, valid line in the auth log? If so, extract featurse from it and either
@@ -313,15 +307,19 @@ class AuthLogMonitor(threading.Thread):
                                 print(score)
 
                         # Are we done training?
-                        if training and self.train_count > 0 and num_training_samples > self.train_count:
+                        if training and train_count > 0 and num_training_samples > train_count:
                             self.model.create()
                             training = False
 
+                            # If we're in verbose mode then let the user know we're done with training.
+                            if self.verbose:
+                                print("Training complete. Model generated.")
+
                 # To keep us from busy looping, take a short nap.
                 else:
-                    print("ERROR: Unable to read line from the auth.log.\n")
+                    print("ERROR: Unable to read line from " + self.file_to_monitor + ".")
                     self.running = False
 
             except:
-                print("ERROR: Unable to open the auth.log.\n")
+                print("ERROR: Unable to open the " + self.file_to_monitor + ".")
                 self.running = False
