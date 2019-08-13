@@ -158,8 +158,8 @@ class AuthLogMonitor(threading.Thread):
            it to a sample object that can be used by the IsolationForest."""
         sample = IsolationForest.Sample("")
         features = []
-        features.append({KEY_SUCCESS: extracted_features[KEY_SUCCESS]})
-        features.append({KEY_VALID_USER: extracted_features[KEY_VALID_USER]})
+        features.append({KEY_SUCCESS: int(extracted_features[KEY_SUCCESS])})
+        features.append({KEY_VALID_USER: int(extracted_features[KEY_VALID_USER])})
         features.append({KEY_USER_SUCCESS_COUNT: extracted_features[KEY_USER_SUCCESS_COUNT]})
         features.append({KEY_USER_FAIL_COUNT: extracted_features[KEY_USER_FAIL_COUNT]})
         features.append({KEY_ADDR_SUCCESS_COUNT: extracted_features[KEY_ADDR_SUCCESS_COUNT]})
