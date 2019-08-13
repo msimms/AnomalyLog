@@ -91,8 +91,7 @@ class AuthLogMonitor(threading.Thread):
         self.user_counts = {}
         self.address_counts = {}
         self.model = IsolationForest.Forest(50, 10)
-        self.recent_scores = array.array('d')
-        self.threshold = 0.0
+        self.threshold = 0.9
 
     def get_from_config(self, section, key):
         """Handles the differences between python2 and python3 in reading the config object."""
@@ -105,19 +104,6 @@ class AuthLogMonitor(threading.Thread):
             pass
         return None
 
-    def update_stats(self, score):
-        """Appends the score to the running list of scores and computes the mean and standard deviation."""
-        if sys.version_info[0] >= 3:
-            self.recent_scores.extend([score])
-
-            # Periodically re-compute the threshold. We only do this periodically to keep our CPU utilization down.
-            if len(self.recent_scores) > NUM_SCORES:
-                mean = statistics.mean(self.recent_scores)
-                stddev = statistics.stdev(self.recent_scores)
-                self.threshold = mean + (3.0 * stddev)
-                half = int(NUM_SCORES / 2)
-                self.recent_scores = self.recent_scores[half:]
-
     def handle_anomaly(self, line, features, score):
         """Called when an anomaly is detected. Looks in the configuration to determien what action(s) to take."""
         if not self.config:
@@ -126,15 +112,16 @@ class AuthLogMonitor(threading.Thread):
 
         # Only alert on successful logins.
         alert_on_success = self.get_from_config(CONFIG_SECTION_GENERAL, CONFIG_KEY_ALERT_ON_SUCCESSFUL_LOGIN)
-        successful_logon = features[KEY_SUCCESS]
-        if alert_on_success and not successful_logon:
-            return
+        if alert_on_success is not None:
+            successful_logon = features[KEY_SUCCESS]
+            if alert_on_success and not successful_logon:
+                return
 
         # The Slack message we will use.
         slack_msg = "An anomaly was detected on " + self.hostname + ":\n\tScore: " + str(score) + "\n\tLog Entry: " + line
 
         # Handl each anomoly action.
-        action_list_str = self.get_from_config(CONFIG_KEY_GENERAL, CONFIG_KEY_ACTIONS)
+        action_list_str = self.get_from_config(CONFIG_SECTION_GENERAL, CONFIG_KEY_ACTIONS)
         action_list = action_list_str.split(',')
         for action in action_list:
             if action == CONFIG_ACTION_SLACK:
@@ -150,7 +137,7 @@ class AuthLogMonitor(threading.Thread):
     def compare_against_model(self, features):
         """Scores the features against the model."""
         sample = self.convert_features_to_sample(features)
-        score = self.model.score(sample)
+        score = self.model.normalized_score(sample)
         return score
 
     def convert_features_to_sample(self, extracted_features):
@@ -294,11 +281,8 @@ class AuthLogMonitor(threading.Thread):
                             # Score the sample against the model.
                             score = self.compare_against_model(features)
 
-                            # Update the mean and standard deviation.
-                            self.update_stats(score)
-
                             # If we're over the threshold then handle the anomaly.
-                            if self.threshold > 0.1 and score > self.threshold:
+                            if score > self.threshold:
                                 self.handle_anomaly(line, features, score)
 
                             # If we're in verbose mode then print out the feature and it's score.
