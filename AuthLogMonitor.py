@@ -43,6 +43,7 @@ else:
 CONFIG_SECTION_GENERAL = "General"
 CONFIG_KEY_ACTIONS = "actions"
 CONFIG_KEY_ALERT_ON_SUCCESSFUL_LOGIN = "only alert on successful login"
+CONFIG_KEY_ALGORITHM = "algorithm"
 CONFIG_KEY_SLACK_KEY = "key"
 CONFIG_KEY_SLACK_CHANNEL = "channel"
 CONFIG_ACTION_SLACK = 'Slack'
@@ -52,14 +53,15 @@ CONFIG_SECTION_TRAINING = "Training"
 CONFIG_KEY_TRAINING_COUNT = "count"
 
 # Features
-KEY_SUCCESS = "successful login"
-KEY_ADDRESS = "addr"
-KEY_USER = "user"
-KEY_VALID_USER = "valid user"
-KEY_USER_SUCCESS_COUNT = "user success count"
-KEY_USER_FAIL_COUNT = "user fail count"
-KEY_ADDR_SUCCESS_COUNT = "addr success count"
-KEY_ADDR_FAIL_COUNT = "addr fail count"
+KEY_SUCCESS = "successful login" # TRUE if the OS allowed the login attempt, FALSE if it was denied
+KEY_ADDRESS = "addr" # The address from which the login attempt is coming
+KEY_USER = "user" # The user name of the user that is trying to log in
+KEY_VALID_USER = "valid user" # This user is in the passwd file
+KEY_USER_SUCCESS_COUNT = "user success count" # The number of times this user has successfully logged in
+KEY_USER_FAIL_COUNT = "user fail count" # The number of times this user has failed to login
+KEY_ADDR_SUCCESS_COUNT = "addr success count" # The number of times a successful login has come from this address
+KEY_ADDR_FAIL_COUNT = "addr fail count" # The number of times a failed login has come from this address
+KEY_ADDR_KNOWN_TO_USER = "addr known to user" # TRUE if the user has successfully logged in from this address before
 
 INVALID_USER_SUB_STR = "invalid user "
 
@@ -84,14 +86,21 @@ class AuthLogMonitor(threading.Thread):
         self.hostname = hostname
         self.file_to_monitor = file_to_monitor
         self.verbose = verbose
+
         self.success_re_str = "(^.*\d+:\d+:\d+).*sshd.*Accepted password for (.*) from (.*) port.*"
         self.success_re = re.compile(self.success_re_str)
         self.failed_re_str = "(^.*\d+:\d+:\d+).*sshd.*Failed password for (.*) from (.*) port.*"
         self.failed_re = re.compile(self.failed_re_str)
-        self.user_counts = {}
-        self.address_counts = {}
+
         self.model = IsolationForest.Forest(50, 10)
         self.threshold = 0.9
+        self.training = True
+        self.num_training_samples = 0
+        self.train_count = int(self.get_from_config(CONFIG_SECTION_TRAINING, CONFIG_KEY_TRAINING_COUNT))
+
+        self.user_success_counts = {}
+        self.address_success_counts = {}
+        self.successful_user_addrs = {}
 
     def get_from_config(self, section, key):
         """Handles the differences between python2 and python3 in reading the config object."""
@@ -154,9 +163,6 @@ class AuthLogMonitor(threading.Thread):
         sample.add_features(features)
         return sample
 
-    def normalize_features(self, features):
-        return features
-
     def calculate_features(self, features, valid_users):
         """Calculate additional features based on the ones extracted from the log file."""
 
@@ -168,27 +174,32 @@ class AuthLogMonitor(threading.Thread):
         features[KEY_VALID_USER] = user in valid_users
 
         # Create record entries for the user and address, if necessary.
-        if user not in self.user_counts:
-            self.user_counts[user] = [0, 0]
-        if address not in self.address_counts:
-            self.address_counts[address] = [0, 0]
+        if user not in self.user_success_counts:
+            self.user_success_counts[user] = [0, 0]
+        if address not in self.address_success_counts:
+            self.address_success_counts[address] = [0, 0]
+        if user not in self.successful_user_addrs:
+            self.successful_user_addrs[user] = set()
 
         # How many successful/failed login attempts for this user?
         # How many successful/failed login attempts for this source address?
-        user_counts_value = self.user_counts[user]
-        addr_counts_value = self.address_counts[address]
+        user_counts_value = self.user_success_counts[user]
+        addr_counts_value = self.address_success_counts[address]
+        user_success_addrs = self.successful_user_addrs[user]
         if success:
             user_counts_value[0] = user_counts_value[0] + 1
             addr_counts_value[0] = addr_counts_value[0] + 1
+            user_success_addrs.add(addr)
         else:
             user_counts_value[1] = user_counts_value[1] + 1
             addr_counts_value[1] = addr_counts_value[1] + 1
-        self.user_counts[user] = user_counts_value
-        self.address_counts[address] = addr_counts_value
+        self.user_success_counts[user] = user_counts_value
+        self.address_success_counts[address] = addr_counts_value
         features[KEY_USER_SUCCESS_COUNT] = user_counts_value[0]
         features[KEY_USER_FAIL_COUNT] = user_counts_value[1]
         features[KEY_ADDR_SUCCESS_COUNT] = addr_counts_value[0]
         features[KEY_ADDR_FAIL_COUNT] = addr_counts_value[1]
+        features[KEY_ADDR_KNOWN_TO_USER] = addr in user_success_addrs
 
         return features
 
@@ -234,13 +245,79 @@ class AuthLogMonitor(threading.Thread):
 
         return users
 
+    def analyze_using_anomoly_detection_algorithm(self, line, features):
+        """Analysis algorithm 1"""
+
+        anomolous = False
+
+        # Either use the features for training or compare then against an existing model.
+        if self.training:
+
+            # Train the model.
+            self.train_model(features)
+
+            # Update the count of training samples.
+            self.num_training_samples = self.num_training_samples + 1
+
+            # If we're in verbose mode then print out the feature.
+            if self.verbose:
+                print(features)
+                print("Used for training.")
+        else:
+
+            # Score the sample against the model.
+            score = self.compare_against_model(features)
+
+            # If we're over the threshold then handle the anomaly.
+            if score > self.threshold:
+                self.handle_anomaly(line, features, score)
+                anomolous = True
+
+            # If we're in verbose mode then print out the feature and it's score.
+            if self.verbose:
+                print(features)
+                print(score)
+
+        # Are we done training?
+        if self.training and self.train_count > 0 and self.num_training_samples > self.train_count:
+            self.model.create()
+            self.training = False
+
+            # If we're in verbose mode then let the user know we're done with training.
+            if self.verbose:
+                print("Training complete. Model generated.")
+
+        return anomolous
+
+    def analyze_using_simple_logic(self, line, features):
+        """Analysis algorithm 2"""
+
+        # If we're in verbose mode then print out the feature and it's score.
+        if self.verbose:
+            print(features)
+
+        # Onlu interested in successful logins.
+        if not features[KEY_SUCCESS]:
+            return False
+
+        # The access is valid if the user is known and has logged in from the given address before.
+        if features[KEY_VALID_USER] and features[KEY_ADDR_KNOWN_TO_USER]:
+            return False
+
+        self.handle_anomaly(line, features, 1.0)
+        return True
+
     def run(self):
-        training = True
-        num_training_samples = 0
-        train_count = int(self.get_from_config(CONFIG_SECTION_TRAINING, CONFIG_KEY_TRAINING_COUNT))
 
         # Get the list of valid users.
         valid_users = self.list_users()
+
+        # Which algorithm to use?
+        algorithm = self.get_from_config(CONFIG_SECTION_GENERAL, CONFIG_KEY_ALGORITHM)
+        if algorithm is None:
+            algorithm = 'simple'
+        else:
+            algorithm = algorithm.lower()
 
         # Monitor the auth log.
         f = subprocess.Popen(['tail', '+f', self.file_to_monitor], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -260,44 +337,13 @@ class AuthLogMonitor(threading.Thread):
                         # Calculate derived features.
                         features = self.calculate_features(features, valid_users)
 
-                        # Normalize features.
-                        features = self.normalize_features(features)
-
-                        # Either use the features for training or compare then against an existing model.
-                        if training:
-
-                            # Train the model.
-                            self.train_model(features)
-
-                            # Update the count of training samples.
-                            num_training_samples = num_training_samples + 1
-
-                            # If we're in verbose mode then print out the feature.
-                            if self.verbose:
-                                print(features)
-                                print("Used for training.")
+                        # Analyze the sample.
+                        if algorithm == 'simple':
+                            self.analyze_using_simple_logic(line, features)
+                        elif algorithm == 'forest':
+                            self.analyze_using_anomoly_detection_algorithm(line, features)
                         else:
-
-                            # Score the sample against the model.
-                            score = self.compare_against_model(features)
-
-                            # If we're over the threshold then handle the anomaly.
-                            if score > self.threshold:
-                                self.handle_anomaly(line, features, score)
-
-                            # If we're in verbose mode then print out the feature and it's score.
-                            if self.verbose:
-                                print(features)
-                                print(score)
-
-                        # Are we done training?
-                        if training and train_count > 0 and num_training_samples > train_count:
-                            self.model.create()
-                            training = False
-
-                            # If we're in verbose mode then let the user know we're done with training.
-                            if self.verbose:
-                                print("Training complete. Model generated.")
+                            self.analyze_using_simple_logic(line, features)
 
                 # To keep us from busy looping, take a short nap.
                 else:
