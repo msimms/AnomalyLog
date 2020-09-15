@@ -30,6 +30,7 @@ import subprocess
 import sys
 import threading
 import time
+import traceback
 import Alert
 
 python_version = sys.version_info[0]
@@ -199,7 +200,7 @@ class AuthLogMonitor(threading.Thread):
         features[KEY_USER_FAIL_COUNT] = user_counts_value[1]
         features[KEY_ADDR_SUCCESS_COUNT] = addr_counts_value[0]
         features[KEY_ADDR_FAIL_COUNT] = addr_counts_value[1]
-        features[KEY_ADDR_KNOWN_TO_USER] = addr in user_success_addrs
+        features[KEY_ADDR_KNOWN_TO_USER] = address in user_success_addrs
 
         return features
 
@@ -301,6 +302,10 @@ class AuthLogMonitor(threading.Thread):
             return False
 
         # The access is valid if the user is known and has logged in from the given address before.
+        if KEY_VALID_USER not in features:
+            return False
+        if KEY_ADDR_KNOWN_TO_USER not in features:
+            return False
         if features[KEY_VALID_USER] and features[KEY_ADDR_KNOWN_TO_USER]:
             return False
 
@@ -311,6 +316,9 @@ class AuthLogMonitor(threading.Thread):
 
         # Get the list of valid users.
         valid_users = self.list_users()
+        if len(valid_users) == 0:
+            print("ERROR: Unable to generate a list of valid users.")
+            self.running = False
 
         # Which algorithm to use?
         algorithm = self.get_from_config(CONFIG_SECTION_GENERAL, CONFIG_KEY_ALGORITHM)
@@ -348,8 +356,14 @@ class AuthLogMonitor(threading.Thread):
                 # To keep us from busy looping, take a short nap.
                 else:
                     print("ERROR: Unable to read line from " + self.file_to_monitor + ".")
+                    print(traceback.format_exc())
+                    print(sys.exc_info()[0])
                     self.running = False
 
             except:
                 print("ERROR: Unable to open the " + self.file_to_monitor + ".")
+                print(traceback.format_exc())
+                print(sys.exc_info()[0])
                 self.running = False
+
+        print("DONE")
